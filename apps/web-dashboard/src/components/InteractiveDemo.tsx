@@ -203,15 +203,13 @@ export const InteractiveDemo: React.FC = () => {
   const handleToggleMic = async () => {
     if (isListening) {
       setSpeechStartTime(null);
+      setIsProcessing(true);
       const res = await stopListening();
-      const currentText = res.text || liveRawText;
+      const currentText = (res.text || liveRawText || '').trim();
 
-      // If audio was captured, send to local API backend or direct Whisper
-      if (res.audioBase64) {
-        setIsProcessing(true);
-        let handled = false;
-
-        // Tier 1: Local / Configured Backend Server
+      // Tier 1: Local Backend Server (Only when testing locally on localhost)
+      const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      if (isLocalhost && res.audioBase64) {
         try {
           const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4321';
           const apiRes = await fetch(`${apiBase}/api/transcription`, {
@@ -233,58 +231,90 @@ export const InteractiveDemo: React.FC = () => {
                 setLiveRawText(data.result.rawTranscript);
               }
               setIsProcessing(false);
-              handled = true;
               return;
             }
           }
         } catch {
-          // Backend server is offline or unreachable (e.g. deployed on Vercel)
+          // Localhost backend offline, proceeding to cloud whisper
         }
-
-        // Tier 2: Direct Groq Whisper API in Browser if VITE_GROQ_API_KEY is configured
-        const groqKey = import.meta.env.VITE_GROQ_API_KEY;
-        if (!handled && groqKey) {
-          try {
-            const binaryStr = atob(res.audioBase64);
-            const bytes = new Uint8Array(binaryStr.length);
-            for (let i = 0; i < binaryStr.length; i++) {
-              bytes[i] = binaryStr.charCodeAt(i);
-            }
-            const blob = new Blob([bytes], { type: 'audio/webm' });
-            const formData = new FormData();
-            formData.append('file', blob, 'audio.webm');
-            formData.append('model', 'whisper-large-v3');
-            if (selectedLanguage.code && selectedLanguage.code !== 'auto') {
-              formData.append('language', selectedLanguage.code);
-            }
-            const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${groqKey}` },
-              body: formData
-            });
-            if (groqRes.ok) {
-              const groqData = await groqRes.json();
-              if (groqData.text) {
-                const transcribed = groqData.text.trim();
-                setLiveRawText(transcribed);
-                runAIPipeline(transcribed, selectedMode);
-                setIsProcessing(false);
-                handled = true;
-                return;
-              }
-            }
-          } catch (groqErr) {
-            console.warn('[Direct Groq fallback notice]:', groqErr);
-          }
-        }
-
-        setIsProcessing(false);
       }
 
-      queueAIPipeline(currentText, true);
+      // Tier 2: Groq Whisper Large-v3 Neural Engine (Works everywhere including Vercel)
+      const groqKey = (import.meta.env.VITE_GROQ_API_KEY || (typeof window !== 'undefined' ? (localStorage.getItem('hrkvoice_groq_key') || localStorage.getItem('groq_api_key')) : '') || '').trim();
+      let audioBlob = res.audioBlob;
+      if (!audioBlob && res.audioBase64) {
+        try {
+          const binaryStr = atob(res.audioBase64);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+          audioBlob = new Blob([bytes], { type: 'audio/webm' });
+        } catch {}
+      }
+
+      if (audioBlob && audioBlob.size > 200 && groqKey) {
+        const LANGUAGE_PROMPTS: Record<string, string> = {
+          gu: 'આ એક સ્પષ્ટ ગુજરાતી ડિક્ટેશન છે. યોગ્ય વિરામચિહ્નો સાથે શુદ્ધ ગુજરાતી લિપિમાં લખો.',
+          hi: 'यह एक स्पष्ट हिंदी डिक्टेशन है। उचित विराम चिह्नों के साथ शुद्ध देवनागरी लिपि में लिखें।',
+          mr: 'हे एक स्पष्ट मराठी डिक्टेशन आहे. योग्य विरामचिन्हांसह शुद्ध मराठीत लिहा.',
+          bn: 'এটি একটি স্পষ্ট বাংলা ডিক্টেশন। সঠিক বিরামচিহ্ন সহ বিশুদ্ধ বাংলায় লিখুন।',
+          ta: 'இது ஒரு தெளிவான தமிழ் பதிவு. சரியான நிறுத்தற்குறிகளுடன் தூய தமிழில் எழுதுங்கள்.',
+          te: 'ఇది స్పష్టమైన తెలుగు డిక్టేషన్. సరైన విరామ చిహ్నాలతో స్వచ్ఛమైన తెలుగులో రాయండి.'
+        };
+
+        const tryTranscribe = async (modelName: string) => {
+          const formData = new FormData();
+          formData.append('file', audioBlob!, 'audio.webm');
+          formData.append('model', modelName);
+          formData.append('temperature', '0');
+          if (selectedLanguage.code && selectedLanguage.code !== 'auto') {
+            formData.append('language', selectedLanguage.code);
+          }
+          if (LANGUAGE_PROMPTS[selectedLanguage.code]) {
+            formData.append('prompt', LANGUAGE_PROMPTS[selectedLanguage.code]);
+          }
+          const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${groqKey}` },
+            body: formData
+          });
+          if (!response.ok) throw new Error(`Groq HTTP ${response.status}`);
+          return await response.json();
+        };
+
+        try {
+          let groqData;
+          try {
+            groqData = await tryTranscribe('whisper-large-v3');
+          } catch (e) {
+            console.warn('[Whisper large-v3 notice, retrying with whisper-large-v3-turbo]:', e);
+            groqData = await tryTranscribe('whisper-large-v3-turbo');
+          }
+
+          if (groqData && groqData.text && groqData.text.trim()) {
+            const raw = groqData.text.trim();
+            setLiveRawText(raw);
+            runAIPipeline(raw, selectedMode);
+            setIsProcessing(false);
+            return;
+          }
+        } catch (err: any) {
+          console.warn('[Direct Groq Whisper fallback notice]:', err);
+        }
+      }
+
+      // Tier 3: Browser real-time transcript or local pipeline
+      if (currentText) {
+        setLiveRawText(currentText);
+        runAIPipeline(currentText, selectedMode);
+      }
+      setIsProcessing(false);
     } else {
       setSpeechStartTime(Date.now());
       setCurrentWpm(0);
+      setLiveRawText('');
+      setCleanedOutput('');
       await startListening(selectedLanguage.locale);
     }
   };

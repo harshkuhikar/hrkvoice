@@ -229,16 +229,13 @@ export function useLiveSpeechRecognition({
       try {
         rec.start();
       } catch (err: any) {
-        console.error('[SpeechRecognition] Failed to start:', err);
-        setError('Could not start speech recognition. Please check your microphone.');
-        shouldKeepListeningRef.current = false;
-        setIsListening(false);
-        cleanupAudioGraph();
+        console.warn('[SpeechRecognition] Browser real-time speech unavailable; Groq Whisper neural engine will transcribe audio:', err);
       }
     }
-  }, [initRecognition, startAudioMeter, cleanupAudioGraph]);
+    setIsListening(true);
+  }, [initRecognition, startAudioMeter]);
 
-  const stopListening = useCallback(async (): Promise<{ text: string; audioBase64: string }> => {
+  const stopListening = useCallback(async (): Promise<{ text: string; audioBlob: Blob | null; audioBase64: string }> => {
     shouldKeepListeningRef.current = false;
     if (recognitionRef.current) {
       try {
@@ -246,6 +243,7 @@ export function useLiveSpeechRecognition({
       } catch {}
     }
 
+    let audioBlob: Blob | null = null;
     let audioBase64 = '';
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
@@ -254,6 +252,7 @@ export function useLiveSpeechRecognition({
           mediaRecorderRef.current.onstop = () => {
             const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
             const blob = new Blob(recordedChunksRef.current, { type: mimeType });
+            audioBlob = blob;
             const reader = new FileReader();
             reader.onloadend = () => {
               const res = reader.result as string;
@@ -262,6 +261,9 @@ export function useLiveSpeechRecognition({
             };
             reader.readAsDataURL(blob);
           };
+          try {
+            mediaRecorderRef.current.requestData();
+          } catch {}
           mediaRecorderRef.current.stop();
         });
       } catch (e) {
@@ -276,7 +278,7 @@ export function useLiveSpeechRecognition({
     if (onFinalTranscript) {
       onFinalTranscript(finalResult);
     }
-    return { text: finalResult, audioBase64 };
+    return { text: finalResult, audioBlob, audioBase64 };
   }, [cleanupAudioGraph, onFinalTranscript]);
 
   const resetTranscript = useCallback(() => {
