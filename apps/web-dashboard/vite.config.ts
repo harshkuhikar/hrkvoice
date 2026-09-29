@@ -6,7 +6,8 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@hrkvoice/shared': path.resolve(__dirname, '../../packages/shared/src')
+      '@hrkvoice/shared': path.resolve(__dirname, './src/shared'),
+      '@hrkvoice/ai': path.resolve(__dirname, './src/ai')
     }
   },
   server: {
