@@ -15,12 +15,14 @@ import { Footer } from './components/Footer';
 import { DownloadModal } from './components/DownloadModal';
 import { CheckoutModal } from './components/CheckoutModal';
 import { AuthModal } from './components/AuthModal';
+import { ProfileModal } from './components/ProfileModal';
 import { useAuth } from './hooks/useAuth';
-import { Download, Sparkles, Laptop, User, LogOut } from 'lucide-react';
+import { Download, Sparkles, Laptop, User, LogOut, Settings } from 'lucide-react';
 
 export const App: React.FC = () => {
   const { currentUser, isAuthenticated, logout } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [selectedCheckoutTier, setSelectedCheckoutTier] = useState<PricingTier | null>(null);
@@ -58,32 +60,56 @@ export const App: React.FC = () => {
           <div className="flex items-center gap-3">
             {isAuthenticated && currentUser ? (
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-charcoal-900 border border-white/10 text-xs">
-                <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-brand to-indigo-500 text-white flex items-center justify-center font-bold text-[10px]">
-                  {currentUser.name.slice(0, 2).toUpperCase()}
-                </div>
-                <div className="hidden sm:block text-left">
-                  <div className="font-bold text-white leading-tight">{currentUser.name}</div>
-                  <div className="text-[10px] text-emerald-400 font-medium">● {currentUser.plan.toUpperCase()}</div>
-                </div>
+                <button
+                  onClick={() => setShowProfileModal(true)}
+                  className="flex items-center gap-2 hover:opacity-85 transition-opacity text-left"
+                  title="Open Profile & Settings"
+                >
+                  <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-brand to-indigo-500 text-white flex items-center justify-center font-bold text-[10px]">
+                    {currentUser.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="hidden sm:block">
+                    <div className="font-bold text-white leading-tight">{currentUser.name}</div>
+                    <div className="text-[10px] text-emerald-400 font-medium">● {currentUser.plan.toUpperCase()}</div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setShowProfileModal(true)}
+                  title="Profile & Voice Settings"
+                  className="p-1 text-slate-400 hover:text-brand-light transition-colors"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                </button>
                 <button
                   onClick={logout}
                   title="Sign Out"
-                  className="ml-1 p-1 text-slate-400 hover:text-white transition-colors"
+                  className="p-1 text-slate-400 hover:text-rose-400 transition-colors"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => {
-                  setAuthMode('login');
-                  setShowAuthModal(true);
-                }}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-semibold border border-white/10 transition-colors"
-              >
-                <User className="w-3.5 h-3.5 text-brand-light" />
-                <span>Sign In</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setAuthMode('login');
+                    setShowAuthModal(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-semibold border border-white/10 transition-colors"
+                >
+                  <User className="w-3.5 h-3.5 text-brand-light" />
+                  <span>Sign In</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setAuthMode('register');
+                    setShowAuthModal(true);
+                  }}
+                  className="hidden sm:flex items-center gap-1 px-3 py-2 rounded-xl bg-brand/20 hover:bg-brand/30 text-brand-light border border-brand/40 text-xs font-semibold transition-colors"
+                >
+                  <span>Sign Up</span>
+                </button>
+              </div>
             )}
 
             <button
@@ -149,6 +175,17 @@ export const App: React.FC = () => {
         isOpen={showAuthModal}
         onClose={() => setShowAuthModal(false)}
         initialMode={authMode}
+        onSuccess={(mode) => {
+          if (mode === 'register') {
+            setShowProfileModal(true);
+          }
+        }}
+      />
+
+      {/* User Profile & Voice Settings Modal */}
+      <ProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
       />
     </div>
   );

@@ -23,12 +23,14 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialMode?: 'login' | 'register';
+  onSuccess?: (mode: 'login' | 'register') => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
-  initialMode = 'login'
+  initialMode = 'login',
+  onSuccess
 }) => {
   const { login, register } = useAuth();
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
@@ -54,17 +56,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           setSuccessMessage('Welcome back! You are logged in.');
           setTimeout(() => {
             onClose();
-          }, 800);
+            if (onSuccess) onSuccess('login');
+          }, 600);
         } else {
           setError(res.error || 'Login failed.');
         }
       } else {
         const res = await register(name, email, password);
         if (res.success) {
-          setSuccessMessage('Account created successfully! Your session is active.');
+          setSuccessMessage('Account created successfully! Opening your Profile & Settings...');
           setTimeout(() => {
             onClose();
-          }, 800);
+            if (onSuccess) onSuccess('register');
+          }, 600);
         } else {
           setError(res.error || 'Registration failed.');
         }

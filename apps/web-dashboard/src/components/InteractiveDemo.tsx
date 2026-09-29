@@ -32,6 +32,7 @@ import {
 import { useLiveSpeechRecognition } from '../hooks/useLiveSpeechRecognition';
 import { TextProcessingPipeline, IndianScriptProcessor } from '@hrkvoice/ai';
 import { WritingMode } from '@hrkvoice/shared';
+import { useAuth } from '../hooks/useAuth';
 
 interface LanguageOption {
   code: string;
@@ -109,6 +110,8 @@ const SAMPLE_SCENARIOS = [
 ];
 
 export const InteractiveDemo: React.FC = () => {
+  const { currentUser } = useAuth();
+
   // Default to Gujarati first as requested by user, with 1-click tab buttons
   const [selectedLanguage, setSelectedLanguage] = useState<LanguageOption>(PRIMARY_LANGUAGES[0]);
   const [selectedMode, setSelectedMode] = useState<WritingMode>('general');
@@ -123,9 +126,18 @@ export const InteractiveDemo: React.FC = () => {
   const [speechStartTime, setSpeechStartTime] = useState<number | null>(null);
   const [currentWpm, setCurrentWpm] = useState<number>(0);
 
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Sync default language and mode from user preferences if logged in
+  useEffect(() => {
+    if (currentUser?.preferences?.defaultLanguage) {
+      const match = PRIMARY_LANGUAGES.find(l => l.code === currentUser.preferences?.defaultLanguage);
+      if (match) setSelectedLanguage(match);
+    }
+    if (currentUser?.preferences?.defaultMode) {
+      setSelectedMode(currentUser.preferences.defaultMode as WritingMode);
+    }
+  }, [currentUser]);
 
-  // Execute multi-stage deterministic AI pipeline
+  // Execute multi-stage deterministic AI pipeline instantaneously with ZERO lag
   const runAIPipeline = useCallback((textToProcess: string, mode: WritingMode = selectedMode) => {
     if (!textToProcess || !textToProcess.trim()) {
       setCleanedOutput('');
@@ -133,7 +145,6 @@ export const InteractiveDemo: React.FC = () => {
       return;
     }
 
-    setIsProcessing(true);
     try {
       const result = TextProcessingPipeline.execute(textToProcess, {
         mode,
@@ -148,28 +159,11 @@ export const InteractiveDemo: React.FC = () => {
       setTransformations(result.appliedTransformations);
     } catch (err) {
       console.error('[AI Pipeline Error]:', err);
-    } finally {
-      setIsProcessing(false);
+      setCleanedOutput(textToProcess);
     }
   }, [selectedLanguage.code, selectedMode]);
 
-  // Debounced pipeline caller to maintain 60fps responsiveness during rapid speech
-  const queueAIPipeline = useCallback((text: string, immediate: boolean = false) => {
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = null;
-    }
-
-    if (immediate) {
-      runAIPipeline(text);
-    } else {
-      debounceTimerRef.current = setTimeout(() => {
-        runAIPipeline(text);
-      }, 75);
-    }
-  }, [runAIPipeline]);
-
-  // High-accuracy live speech recognition hook
+  // High-accuracy live speech recognition hook with continuous word-by-word streaming
   const {
     isListening,
     transcript,
@@ -184,6 +178,9 @@ export const InteractiveDemo: React.FC = () => {
   } = useLiveSpeechRecognition({
     onInterimTranscript: (interim) => {
       setLiveRawText(interim);
+      // Instant execution: write with the user word-by-word with ZERO delay!
+      runAIPipeline(interim, selectedMode);
+
       // Update WPM calculation
       if (speechStartTime) {
         const elapsedMins = (Date.now() - speechStartTime) / 60000;
@@ -192,11 +189,10 @@ export const InteractiveDemo: React.FC = () => {
           setCurrentWpm(Math.round(words / elapsedMins));
         }
       }
-      queueAIPipeline(interim, false);
     },
     onFinalTranscript: (final) => {
       setLiveRawText(final);
-      queueAIPipeline(final, true);
+      runAIPipeline(final, selectedMode);
     }
   });
 
@@ -266,7 +262,15 @@ export const InteractiveDemo: React.FC = () => {
           mr: 'हे एक स्पष्ट मराठी डिक्टेशन आहे. योग्य विरामचिन्हांसह शुद्ध मराठीत लिहा.',
           bn: 'এটি একটি স্পষ্ট বাংলা ডিক্টেশন। সঠিক বিরামচিহ্ন সহ বিশুদ্ধ বাংলায় লিখুন।',
           ta: 'இது ஒரு தெளிவான தமிழ் பதிவு. சரியான நிறுத்தற்குறிகளுடன் தூய தமிழில் எழுதுங்கள்.',
-          te: 'ఇది స్పష్టమైన తెలుగు డిక్టేషన్. సరైన విరామ చిహ్నాలతో స్వచ్ఛమైన తెలుగులో రాయండి.'
+          te: 'ఇది స్పష్టమైన తెలుగు డిక్టేషన్. సరైన విరామ చిహ్నాలతో స్వచ్ఛమైన తెలుగులో రాయండి.',
+          kn: 'ಇದು ಸ್ಪಷ್ಟವಾದ ಕನ್ನಡ ಡಿಕ್ಟೇಶನ್. ಸರಿಯಾದ ವಿರಾಮಚಿಹ್ನೆಗಳೊಂದಿಗೆ ಶುದ್ಧ ಕನ್ನಡ ಲಿಪಿಯಲ್ಲಿ ಬರೆಯಿರಿ.',
+          ml: 'ഇതൊരു വ്യക്തമായ മലയാളം ഡിക്റ്റേഷനാണ്. ശരിയായ ചിഹ്നങ്ങളോടെ ശുദ്ധ മലയാളത്തിൽ എഴുതുക.',
+          pa: 'ਇਹ ਇੱਕ ਸਪਸ਼ਟ ਪੰਜਾਬੀ ਡਿਕਟੇਸ਼ਨ ਹੈ। ਸਹੀ ਵਿਰਾਮ ਚਿੰਨ੍ਹਾਂ ਨਾਲ ਸ਼ੁੱਧ ਗੁਰਮੁਖੀ ਵਿੱਚ ਲਿਖੋ।',
+          ur: 'یہ ایک واضح اردو ڈکٹیشن ہے۔ مناسب رموز و اوقاف کے ساتھ خالص اردو میں لکھیں۔',
+          sa: 'इदं स्पष्टं संस्कृत-श्रुतलेखनम् अस्ति। उचित-विरामचिह्नैः सह शुद्ध-देवनागरी-लिपौ लिखत।',
+          or: 'ଏହା ଏକ ସ୍ପଷ୍ଟ ଓଡ଼ିଆ ଡିକ୍ଟେସନ୍ | ଉପଯୁକ୍ତ ବିରାମ ଚିହ୍ନ ସହିତ ଶୁଦ୍ଧ ଓଡ଼ିଆ ଲିପିରେ ଲେଖନ୍ତୁ |',
+          as: 'এইটো এটা স্পষ্ট অসমীয়া ডিকটেচন। উপযুক্ত বিৰাম চিহ্নৰে বিশুদ্ধ অসমীয়া লিপিত লিখক।',
+          en: 'Clear Indian English and Hinglish dictation with natural business vocabulary and currency.'
         };
 
         const tryTranscribe = async (modelName: string) => {
@@ -327,7 +331,7 @@ export const InteractiveDemo: React.FC = () => {
       setCurrentWpm(0);
       setLiveRawText('');
       setCleanedOutput('');
-      await startListening(selectedLanguage.locale);
+      await startListening(selectedLanguage.locale, selectedLanguage.code);
     }
   };
 
@@ -337,7 +341,7 @@ export const InteractiveDemo: React.FC = () => {
       stopListening();
       setTimeout(() => {
         setSpeechStartTime(Date.now());
-        startListening(lang.locale);
+        startListening(lang.locale, lang.code);
       }, 250);
     }
   };
@@ -748,7 +752,7 @@ export const InteractiveDemo: React.FC = () => {
               <>
                 <span className="flex items-center gap-1.5 text-rose-400 font-bold animate-pulse">
                   <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block animate-ping" />
-                  RECORDING IN {selectedLanguage.nativeName.toUpperCase()} • Click Stop to Transcribe
+                  LIVE DICTATING IN {selectedLanguage.nativeName.toUpperCase()} • Writing word-by-word with you
                 </span>
                 {currentWpm > 0 && (
                   <span className="flex items-center gap-1 text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
@@ -786,11 +790,11 @@ export const InteractiveDemo: React.FC = () => {
               onChange={(e) => {
                 setLiveRawText(e.target.value);
                 setManualTranscript(e.target.value);
-                queueAIPipeline(e.target.value, false);
+                runAIPipeline(e.target.value);
               }}
               placeholder={
                 isListening
-                  ? `Listening to your voice in ${selectedLanguage.nativeName}... Speak fluently at your natural speed!`
+                  ? `Listening to your voice in ${selectedLanguage.nativeName}... Speak any word and it writes live with you!`
                   : `Click the microphone above and speak in ${selectedLanguage.nativeName}. Words will appear here in real time.`
               }
               className="flex-1 w-full bg-transparent border-0 text-slate-200 text-sm sm:text-base font-sans leading-relaxed focus:outline-none resize-none placeholder:text-slate-600"
@@ -808,7 +812,7 @@ export const InteractiveDemo: React.FC = () => {
                     disabled={!liveRawText}
                     className="px-2 py-0.5 rounded bg-brand/15 hover:bg-brand/25 text-brand-light border border-brand/30 transition-colors disabled:opacity-30"
                   >
-                    Transliterate $\to$ ગુજરાતી
+                    Transliterate → ગુજરાતી
                   </button>
                 )}
                 {selectedLanguage.code === 'hi' && (
@@ -817,7 +821,7 @@ export const InteractiveDemo: React.FC = () => {
                     disabled={!liveRawText}
                     className="px-2 py-0.5 rounded bg-brand/15 hover:bg-brand/25 text-brand-light border border-brand/30 transition-colors disabled:opacity-30"
                   >
-                    Transliterate $\to$ हिन्दी
+                    Transliterate → हिन्दी
                   </button>
                 )}
               </div>
@@ -850,10 +854,20 @@ export const InteractiveDemo: React.FC = () => {
               {isProcessing ? (
                 <div className="flex items-center gap-2 text-slate-400 py-6">
                   <RefreshCw className="w-4 h-4 animate-spin text-brand" />
-                  <span>Applying native repairs, Indian currency & writing mode...</span>
+                  <span>Polishing with Whisper Large-v3 Neural Engine...</span>
                 </div>
               ) : cleanedOutput ? (
-                cleanedOutput
+                <span>
+                  {cleanedOutput}
+                  {isListening && (
+                    <span className="inline-block w-1.5 h-4 ml-1 bg-brand animate-pulse align-middle rounded-full" />
+                  )}
+                </span>
+              ) : isListening ? (
+                <span className="text-slate-400 italic flex items-center gap-2 py-6">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping inline-block" />
+                  Listening... Say a word to write with me!
+                </span>
               ) : (
                 <span className="text-slate-500 italic flex items-center gap-2 py-6">
                   Speak in {selectedLanguage.nativeName} above to see your clean, punctuated text appear here.

@@ -5,6 +5,15 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
+export interface UserPreferences {
+  defaultLanguage: string;
+  defaultMode: string;
+  autoPunctuation: boolean;
+  fillerRemoval: boolean;
+  autoCopy: boolean;
+  customVocabulary: string[];
+}
+
 export interface AuthUser {
   id: string;
   name: string;
@@ -15,6 +24,7 @@ export interface AuthUser {
   sessionsCount: number;
   createdAt: string;
   lastLoginAt: string;
+  preferences?: UserPreferences;
 }
 
 interface StoredSession {
@@ -168,6 +178,58 @@ export function useAuth() {
     });
   }, [persistSession]);
 
+  // Update user profile information (Name, Email, etc.)
+  const updateProfile = useCallback(
+    async (updated: Partial<AuthUser>): Promise<{ success: boolean; error?: string }> => {
+      if (!currentUser) return { success: false, error: 'User is not logged in.' };
+
+      const rawDb = localStorage.getItem(USERS_DB_KEY) || '[]';
+      const users: Array<AuthUser & { passwordHash?: string }> = JSON.parse(rawDb);
+      const idx = users.findIndex(u => u.id === currentUser.id);
+
+      const mergedUser: AuthUser = {
+        ...currentUser,
+        ...updated
+      };
+
+      if (idx !== -1) {
+        users[idx] = {
+          ...users[idx],
+          ...updated
+        };
+        localStorage.setItem(USERS_DB_KEY, JSON.stringify(users));
+      }
+
+      persistSession(mergedUser);
+      return { success: true };
+    },
+    [currentUser, persistSession]
+  );
+
+  // Update voice and app preferences
+  const updatePreferences = useCallback(
+    async (prefs: Partial<UserPreferences>): Promise<{ success: boolean }> => {
+      if (!currentUser) return { success: false };
+
+      const currentPrefs: UserPreferences = currentUser.preferences || {
+        defaultLanguage: 'gu',
+        defaultMode: 'general',
+        autoPunctuation: true,
+        fillerRemoval: true,
+        autoCopy: false,
+        customVocabulary: []
+      };
+
+      const mergedPrefs: UserPreferences = {
+        ...currentPrefs,
+        ...prefs
+      };
+
+      return await updateProfile({ preferences: mergedPrefs });
+    },
+    [currentUser, updateProfile]
+  );
+
   return {
     currentUser,
     isAuthenticated: Boolean(currentUser),
@@ -175,6 +237,8 @@ export function useAuth() {
     login,
     register,
     logout,
-    trackDictation
+    trackDictation,
+    updateProfile,
+    updatePreferences
   };
 }
