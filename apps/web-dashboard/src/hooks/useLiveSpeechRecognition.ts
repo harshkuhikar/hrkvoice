@@ -76,6 +76,11 @@ export function useLiveSpeechRecognition({
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const audioCtx = new AudioContextClass();
       audioContextRef.current = audioCtx;
+      if (audioCtx.state === 'suspended') {
+        try {
+          await audioCtx.resume();
+        } catch {}
+      }
 
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 64;
@@ -113,10 +118,27 @@ export function useLiveSpeechRecognition({
 
       animationFrameRef.current = requestAnimationFrame(updateMeter);
 
-      // MediaRecorder for raw audio capture to Whisper Large-v3
+      // Universal MediaRecorder for Android, iOS Safari, and Desktop browsers
       recordedChunksRef.current = [];
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
-      const recorder = new MediaRecorder(stream, { mimeType });
+      let selectedMime = '';
+      if (typeof MediaRecorder !== 'undefined' && typeof MediaRecorder.isTypeSupported === 'function') {
+        const candidates = [
+          'audio/webm;codecs=opus',
+          'audio/webm',
+          'audio/mp4',
+          'audio/aac',
+          'audio/ogg;codecs=opus'
+        ];
+        for (const cand of candidates) {
+          if (MediaRecorder.isTypeSupported(cand)) {
+            selectedMime = cand;
+            break;
+          }
+        }
+      }
+
+      const recorderOptions: MediaRecorderOptions = selectedMime ? { mimeType: selectedMime } : {};
+      const recorder = new MediaRecorder(stream, recorderOptions);
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
           recordedChunksRef.current.push(e.data);

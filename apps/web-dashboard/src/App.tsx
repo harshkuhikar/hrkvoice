@@ -143,6 +143,13 @@ export const App: React.FC = () => {
         tier={selectedCheckoutTier}
         onDownloadApp={() => setShowDownloadModal(true)}
       />
+
+      {/* Cloud Account Authentication Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        initialMode={authMode}
+      />
     </div>
   );
 };
