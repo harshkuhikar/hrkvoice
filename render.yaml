@@ -1,0 +1,27 @@
+services:
+  # Free Web Dashboard Frontend
+  - type: web
+    name: hrkvoice-web
+    env: static
+    buildCommand: npm install && npm run build --workspace=apps/web-dashboard
+    staticPublishPath: ./apps/web-dashboard/dist
+    pullRequestPreviewsEnabled: false
+
+  # Free Node Backend Service
+  - type: web
+    name: hrkvoice-api
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build --workspace=server
+    startCommand: npm run start --workspace=server
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DEFAULT_SPEECH_PROVIDER
+        value: groq
+      - key: DEFAULT_AI_PROVIDER
+        value: groq
+      - key: GROQ_API_KEY
+        sync: false

@@ -1,0 +1,17 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true
+  },
+  "references": [
+    { "path": "../packages/shared" },
+    { "path": "../packages/utilities" },
+    { "path": "../packages/speech" },
+    { "path": "../packages/ai" },
+    { "path": "../packages/dictionary" },
+    { "path": "../packages/context" }
+  ],
+  "include": ["src/**/*"]
+}

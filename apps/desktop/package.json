@@ -1,0 +1,70 @@
+{
+  "name": "@hrkvoice/desktop",
+  "version": "1.0.0",
+  "author": "HRKVoice",
+  "description": "HRKVoice - Windows Desktop Application",
+  "main": "./dist-electron/electron/main.js",
+  "scripts": {
+    "dev:renderer": "vite",
+    "build:renderer": "vite build",
+    "build:electron": "esbuild src/electron/main.ts --bundle --platform=node --external:electron --outfile=dist-electron/electron/main.js && esbuild src/preload/preload.ts --bundle --platform=node --external:electron --outfile=dist-electron/preload/preload.js",
+    "build": "npm run build:renderer && npm run build:electron",
+    "dev": "cross-env NODE_ENV=development concurrently \"vite\" \"npm run dev:electron\"",
+    "dev:electron": "wait-on tcp:5173 && cross-env NODE_ENV=development electron .",
+    "package": "npm run build && electron-builder --win",
+    "package:dir": "npm run build && electron-builder --win --dir"
+  },
+  "dependencies": {
+    "@hrkvoice/shared": "*",
+    "@hrkvoice/utilities": "*",
+    "@hrkvoice/speech": "*",
+    "@hrkvoice/ai": "*",
+    "@hrkvoice/dictionary": "*",
+    "@hrkvoice/context": "*",
+    "@hrkvoice/server": "*",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.hrkvoice.app",
+    "productName": "HRKVoice",
+    "electronVersion": "33.2.1",
+    "directories": {
+      "output": "../../release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

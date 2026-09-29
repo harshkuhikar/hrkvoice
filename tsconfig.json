@@ -1,0 +1,14 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/utilities" },
+    { "path": "./packages/speech" },
+    { "path": "./packages/ai" },
+    { "path": "./packages/dictionary" },
+    { "path": "./packages/context" },
+    { "path": "./server" },
+    { "path": "./apps/desktop" },
+    { "path": "./apps/web-dashboard" }
+  ]
+}

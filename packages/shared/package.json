@@ -1,0 +1,14 @@
+{
+  "name": "@hrkvoice/shared",
+  "version": "1.0.0",
+  "description": "Shared types, language registry, and constants for HRKVoice",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist-electron",
+    "rootDir": "./src",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "target": "ES2022"
+  },
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/utilities" },
+    { "path": "../../packages/speech" },
+    { "path": "../../packages/ai" },
+    { "path": "../../packages/dictionary" },
+    { "path": "../../packages/context" },
+    { "path": "../../server" }
+  ],
+  "include": [
+    "src/electron/**/*",
+    "src/preload/**/*"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@hrkvoice/speech",
+  "version": "1.0.0",
+  "description": "Speech-to-text provider abstraction and adapters for HRKVoice",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "dependencies": {
+    "@hrkvoice/shared": "*",
+    "@hrkvoice/utilities": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "@types/node": "^22.10.2"
+  }
+}
