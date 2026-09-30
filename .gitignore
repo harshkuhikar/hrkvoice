@@ -38,6 +38,7 @@ lerna-debug.log*
 # IDE & OS Files
 .DS_Store
 Thumbs.db
+*.tsbuildinfo
 .idea/
 .vscode/*
 !.vscode/extensions.json

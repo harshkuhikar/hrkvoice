@@ -215,7 +215,7 @@ export const InteractiveDemo: React.FC = () => {
   });
 
   const LANGUAGE_PROMPTS: Record<string, string> = {
-    auto: 'Multilingual speech dictation in Indian languages including Hindi, Gujarati, Marathi, and English with proper punctuation.',
+    auto: 'નમસ્તે, કેમ છો? આ એક ડિક્ટેશન છે. नमस्ते, यह स्पष्ट हिंदी और गुजराती डिक्टेशन है। Clear Indian speech dictation in Gujarati, Hindi, Marathi, and English.',
     gu: 'આ એક સ્પષ્ટ ગુજરાતી ડિક્ટેશન છે. યોગ્ય વિરામચિહ્નો સાથે શુદ્ધ ગુજરાતી લિપિમાં લખો.',
     hi: 'यह एक स्पष्ट हिंदी डिक्टेशन है। उचित विराम चिह्नों के साथ शुद्ध देवनागरी लिपि में लिखें।',
     mr: 'हे एक स्पष्ट मराठी डिक्टेशन आहे. योग्य विरामचिन्हांसह शुद्ध मराठीत लिहा.',
@@ -238,6 +238,7 @@ export const InteractiveDemo: React.FC = () => {
       setIsProcessing(true);
       const res = await stopListening();
       const currentText = (res.text || liveRawText || '').trim();
+      const detectedMime = res.mimeType || res.audioBlob?.type || 'audio/webm';
 
       // Tier 1: Vercel Serverless /api/transcribe (Whisper Large-v3 Turbo with server-side Groq)
       if (res.audioBase64) {
@@ -249,14 +250,20 @@ export const InteractiveDemo: React.FC = () => {
               audioBase64: res.audioBase64,
               language: selectedLanguage.code,
               prompt: LANGUAGE_PROMPTS[selectedLanguage.code] || LANGUAGE_PROMPTS.auto,
-              mimeType: res.audioBlob?.type || 'audio/webm'
+              mimeType: detectedMime
             })
           });
 
-          if (apiRes.ok) {
+          const contentType = apiRes.headers.get('content-type') || '';
+          if (apiRes.ok && contentType.includes('application/json')) {
             const data = await apiRes.json();
             if (data?.text && data.text.trim()) {
-              const liveText = data.text.trim();
+              let liveText = data.text.trim();
+              if (selectedLanguage.code === 'gu' && IndianScriptProcessor.detectScript(liveText) === 'latin') {
+                liveText = IndianScriptProcessor.transliterateToGujarati(liveText);
+              } else if (selectedLanguage.code === 'hi' && IndianScriptProcessor.detectScript(liveText) === 'latin') {
+                liveText = IndianScriptProcessor.transliterateToHindi(liveText);
+              }
               setLiveRawText(liveText);
               runAIPipeline(liveText, selectedMode);
               setIsProcessing(false);
@@ -284,18 +291,17 @@ export const InteractiveDemo: React.FC = () => {
           for (let i = 0; i < binaryStr.length; i++) {
             bytes[i] = binaryStr.charCodeAt(i);
           }
-          audioBlob = new Blob([bytes], { type: 'audio/webm' });
+          audioBlob = new Blob([bytes], { type: detectedMime });
         } catch {}
       }
 
-      if (audioBlob && audioBlob.size > 200 && groqKey) {
+      if (audioBlob && audioBlob.size > 50 && groqKey) {
         const tryTranscribe = async (modelName: string) => {
           const formData = new FormData();
-          const detectedType = audioBlob!.type || '';
-          const fileName = detectedType.includes('mp4') ? 'audio.mp4' :
-                           detectedType.includes('aac') ? 'audio.aac' :
-                           detectedType.includes('ogg') ? 'audio.ogg' :
-                           detectedType.includes('wav') ? 'audio.wav' : 'audio.webm';
+          const fileName = detectedMime.includes('mp4') || detectedMime.includes('m4a') ? 'audio.mp4' :
+                           detectedMime.includes('aac') ? 'audio.aac' :
+                           detectedMime.includes('ogg') ? 'audio.ogg' :
+                           detectedMime.includes('wav') ? 'audio.wav' : 'audio.webm';
 
           formData.append('file', audioBlob!, fileName);
           formData.append('model', modelName);
@@ -325,7 +331,13 @@ export const InteractiveDemo: React.FC = () => {
           }
 
           if (groqData && groqData.text && groqData.text.trim()) {
-            const raw = groqData.text.trim();
+            let raw = groqData.text.trim();
+            // Script Safeguard: if user selected Gujarati or Hindi, and Whisper returned Romanized latin text, transliterate to native script
+            if (selectedLanguage.code === 'gu' && IndianScriptProcessor.detectScript(raw) === 'latin') {
+              raw = IndianScriptProcessor.transliterateToGujarati(raw);
+            } else if (selectedLanguage.code === 'hi' && IndianScriptProcessor.detectScript(raw) === 'latin') {
+              raw = IndianScriptProcessor.transliterateToHindi(raw);
+            }
             setLiveRawText(raw);
             runAIPipeline(raw, selectedMode);
             setIsProcessing(false);
@@ -370,8 +382,14 @@ export const InteractiveDemo: React.FC = () => {
 
       // Tier 4: Browser real-time transcript or accumulated text
       if (currentText) {
-        setLiveRawText(currentText);
-        runAIPipeline(currentText, selectedMode);
+        let text = currentText;
+        if (selectedLanguage.code === 'gu' && IndianScriptProcessor.detectScript(text) === 'latin') {
+          text = IndianScriptProcessor.transliterateToGujarati(text);
+        } else if (selectedLanguage.code === 'hi' && IndianScriptProcessor.detectScript(text) === 'latin') {
+          text = IndianScriptProcessor.transliterateToHindi(text);
+        }
+        setLiveRawText(text);
+        runAIPipeline(text, selectedMode);
       }
       setIsProcessing(false);
     } else {
@@ -380,7 +398,7 @@ export const InteractiveDemo: React.FC = () => {
       setLiveRawText('');
       setCleanedOutput('');
       const activeLocale = selectedLanguage.code === 'auto'
-        ? (typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'en-IN')
+        ? (typeof navigator !== 'undefined' && navigator.language && !navigator.language.startsWith('en') ? navigator.language : 'hi-IN')
         : selectedLanguage.locale;
       await startListening(activeLocale, selectedLanguage.code);
     }

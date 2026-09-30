@@ -30,8 +30,10 @@ export function useLiveSpeechRecognition({
   const recognitionRef = useRef<any>(null);
   const shouldKeepListeningRef = useRef(false);
   const isStartingRecognitionRef = useRef(false);
+  const isStoppingRef = useRef(false);
   const currentLocaleRef = useRef('gu-IN');
   const currentLangCodeRef = useRef('gu');
+  const activeMimeTypeRef = useRef('audio/webm');
 
   // Text Persistence across speech breath pauses
   const persistedSessionTextRef = useRef('');
@@ -143,6 +145,7 @@ export function useLiveSpeechRecognition({
         }
       }
 
+      activeMimeTypeRef.current = selectedMime || 'audio/webm';
       const recorderOptions: MediaRecorderOptions = selectedMime ? { mimeType: selectedMime } : {};
       const recorder = new MediaRecorder(stream, recorderOptions);
       recorder.ondataavailable = (e) => {
@@ -245,9 +248,9 @@ export function useLiveSpeechRecognition({
       }
 
       // Safe continuous restart when user pauses for breath
-      if (shouldKeepListeningRef.current) {
+      if (shouldKeepListeningRef.current && !isStoppingRef.current) {
         setTimeout(() => {
-          if (shouldKeepListeningRef.current && recognitionRef.current && !isStartingRecognitionRef.current) {
+          if (shouldKeepListeningRef.current && !isStoppingRef.current && recognitionRef.current && !isStartingRecognitionRef.current) {
             try {
               isStartingRecognitionRef.current = true;
               recognitionRef.current.start();
@@ -256,7 +259,7 @@ export function useLiveSpeechRecognition({
             }
           }
         }, 40);
-      } else {
+      } else if (!isStoppingRef.current) {
         setIsListening(false);
         cleanupAudioGraph();
         const finalOutput = persistedSessionTextRef.current.trim();
@@ -271,6 +274,7 @@ export function useLiveSpeechRecognition({
 
   const startListening = useCallback(async (locale: string = 'gu-IN', langCode: string = 'gu') => {
     setError(null);
+    isStoppingRef.current = false;
     currentLocaleRef.current = locale;
     currentLangCodeRef.current = langCode;
     shouldKeepListeningRef.current = true;
@@ -301,7 +305,8 @@ export function useLiveSpeechRecognition({
     setIsListening(true);
   }, [initRecognition, startAudioMeter]);
 
-  const stopListening = useCallback(async (): Promise<{ text: string; audioBlob: Blob | null; audioBase64: string }> => {
+  const stopListening = useCallback(async (): Promise<{ text: string; audioBlob: Blob | null; audioBase64: string; mimeType: string }> => {
+    isStoppingRef.current = true;
     shouldKeepListeningRef.current = false;
 
     if (recognitionRef.current) {
@@ -312,24 +317,53 @@ export function useLiveSpeechRecognition({
 
     let audioBlob: Blob | null = null;
     let audioBase64 = '';
+    const mimeType = activeMimeTypeRef.current || 'audio/webm';
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         await new Promise<void>((resolve) => {
-          if (!mediaRecorderRef.current) return resolve();
-          mediaRecorderRef.current.onstop = () => {
-            const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
-            const blob = new Blob(recordedChunksRef.current, { type: mimeType });
-            audioBlob = blob;
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const res = reader.result as string;
-              audioBase64 = res.split(',')[1] || '';
+          const recorder = mediaRecorderRef.current;
+          if (!recorder) return resolve();
+
+          let resolved = false;
+          const finish = () => {
+            if (resolved) return;
+            resolved = true;
+            try {
+              const blob = new Blob(recordedChunksRef.current, { type: mimeType });
+              audioBlob = blob;
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const res = reader.result as string;
+                audioBase64 = res.split(',')[1] || '';
+                resolve();
+              };
+              reader.onerror = () => resolve();
+              reader.readAsDataURL(blob);
+            } catch {
               resolve();
-            };
-            reader.readAsDataURL(blob);
+            }
           };
-          mediaRecorderRef.current.stop();
+
+          // Timeout safety: if onstop doesn't fire within 1500ms, proceed anyway
+          const timer = setTimeout(finish, 1500);
+
+          recorder.onstop = () => {
+            clearTimeout(timer);
+            finish();
+          };
+
+          try {
+            if (recorder.state === 'recording') {
+              recorder.requestData();
+            }
+          } catch {}
+
+          try {
+            recorder.stop();
+          } catch {
+            finish();
+          }
         });
       } catch (e) {
         console.warn('Could not export audio recording:', e);
@@ -338,6 +372,7 @@ export function useLiveSpeechRecognition({
 
     setIsListening(false);
     cleanupAudioGraph();
+    isStoppingRef.current = false;
 
     const finalResult = [
       persistedSessionTextRef.current,
@@ -354,7 +389,7 @@ export function useLiveSpeechRecognition({
       onFinalTranscript(finalResult);
     }
 
-    return { text: finalResult, audioBlob, audioBase64 };
+    return { text: finalResult, audioBlob, audioBase64, mimeType };
   }, [cleanupAudioGraph, onFinalTranscript]);
 
   const resetTranscript = useCallback(() => {
