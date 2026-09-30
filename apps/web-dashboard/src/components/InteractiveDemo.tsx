@@ -50,8 +50,9 @@ interface LanguageOption {
 }
 
 const PRIMARY_LANGUAGES: LanguageOption[] = [
-  { code: 'gu', name: 'Gujarati', nativeName: 'ગુજરાતી', locale: 'gu-IN', flag: '🇮🇳', scriptLabel: 'ગુજરાતી લિપિ' },
+  { code: 'auto', name: 'Auto-Detect', nativeName: 'Auto (બધા/सभी)', locale: 'auto', flag: '🌐', scriptLabel: 'Smart Auto-Detection' },
   { code: 'hi', name: 'Hindi', nativeName: 'हिन्दी', locale: 'hi-IN', flag: '🇮🇳', scriptLabel: 'देवनागरी' },
+  { code: 'gu', name: 'Gujarati', nativeName: 'ગુજરાતી', locale: 'gu-IN', flag: '🇮🇳', scriptLabel: 'ગુજરાતી લિપિ' },
   { code: 'en', name: 'English (India - Hinglish)', nativeName: 'Hinglish', locale: 'en-IN', flag: '🇮🇳', scriptLabel: 'Latin / Code-Switch' },
   { code: 'mr', name: 'Marathi', nativeName: 'मराठी', locale: 'mr-IN', flag: '🇮🇳', scriptLabel: 'देवनागरी' },
   { code: 'bn', name: 'Bengali', nativeName: 'বাংলা', locale: 'bn-IN', flag: '🇮🇳', scriptLabel: 'বাংলা' },
@@ -213,6 +214,24 @@ export const InteractiveDemo: React.FC = () => {
     }
   });
 
+  const LANGUAGE_PROMPTS: Record<string, string> = {
+    auto: 'Multilingual speech dictation in Indian languages including Hindi, Gujarati, Marathi, and English with proper punctuation.',
+    gu: 'આ એક સ્પષ્ટ ગુજરાતી ડિક્ટેશન છે. યોગ્ય વિરામચિહ્નો સાથે શુદ્ધ ગુજરાતી લિપિમાં લખો.',
+    hi: 'यह एक स्पष्ट हिंदी डिक्टेशन है। उचित विराम चिह्नों के साथ शुद्ध देवनागरी लिपि में लिखें।',
+    mr: 'हे एक स्पष्ट मराठी डिक्टेशन आहे. योग्य विरामचिन्हांसह शुद्ध मराठीत लिहा.',
+    bn: 'এটি একটি স্পষ্ট বাংলা ডিক্টেশন। সঠিক বিরামচিহ্ন সহ বিশুদ্ধ বাংলায় লিখুন।',
+    ta: 'இது ஒரு தெளிவான தமிழ் பதிவு. சரியான நிறுத்தற்குறிகளுடன் தூய தமிழில் எழுதுங்கள்.',
+    te: 'ఇది స్పష్టమైన తెలుగు డిక్టేషన్. సరైన విరాம చిహ్నాలతో స్వచ్ఛమైన తెలుగులో రాయండి.',
+    kn: 'ಇದು ಸ್ಪಷ್ಟವಾದ ಕನ್ನಡ ಡಿಕ್ಟೇಶನ್. ಸರಿಯಾದ ವಿರಾಮಚಿಹ್ನೆಗಳೊಂದಿಗೆ ಶುದ್ಧ ಕನ್ನಡ ಲಿಪಿಯಲ್ಲಿ ಬರೆಯಿರಿ.',
+    ml: 'ഇതൊരു വ്യക്തമായ മലയാളം ഡിക്റ്റേഷനാണ്. ശരിയായ ചിഹ്നങ്ങളോടെ ശുദ്ധ മലയാളത്തിൽ എഴുതുക.',
+    pa: 'ਇਹ ਇੱਕ ਸਪਸ਼ਟ ਪੰਜਾਬੀ ਡਿਕਟੇਸ਼ਨ ਹੈ। ਸਹੀ ਵਿਰਾਮ ਚਿੰਨ੍ਹਾਂ ਨਾਲ ਸ਼ੁੱਧ ਗੁਰਮੁਖੀ ਵਿੱਚ ਲਿਖੋ।',
+    ur: 'یہ ایک واضح اردو ڈکٹیشن ہے۔ مناسب رموز و اوقاف کے ساتھ خالص اردو میں لکھیں۔',
+    sa: 'इदं स्पष्टं संस्कृत-श्रुतलेखनम् अस्ति। उचित-विरामचिह्नैः सह शुद्ध-देवनागरी-लिपौ लिखत।',
+    or: 'ଏହା ଏକ ସ୍ପଷ୍ଟ ଓଡ଼ିଆ ଡିକ୍ଟେସନ୍ | ଉପଯୁକ୍ତ ବିରାମ ଚିହ୍ନ ସହିତ ଶୁଦ୍ଧ ଓଡ଼ିଆ ଲିପିରେ ଲେଖନ୍ତୁ |',
+    as: 'এইটো এটা স্পষ্ট অসমীয়া ডিকটেচন। উপযুক্ত বিৰাম চিহ্নৰে বিশুদ্ধ অসমীয়া লিপিত লিখক।',
+    en: 'Clear Indian English and Hinglish dictation with natural business vocabulary and currency.'
+  };
+
   const handleToggleMic = async () => {
     if (isListening) {
       setSpeechStartTime(null);
@@ -220,39 +239,36 @@ export const InteractiveDemo: React.FC = () => {
       const res = await stopListening();
       const currentText = (res.text || liveRawText || '').trim();
 
-      // Tier 1: Localhost Backend Server (when running locally in development)
-      const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-      if (isLocalhost && res.audioBase64) {
+      // Tier 1: Vercel Serverless /api/transcribe (Whisper Large-v3 Turbo with server-side Groq)
+      if (res.audioBase64) {
         try {
-          const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4321';
-          const apiRes = await fetch(`${apiBase}/api/transcription`, {
+          const apiRes = await fetch('/api/transcribe', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               audioBase64: res.audioBase64,
-              transcript: currentText,
               language: selectedLanguage.code,
-              mode: selectedMode
+              prompt: LANGUAGE_PROMPTS[selectedLanguage.code] || LANGUAGE_PROMPTS.auto,
+              mimeType: res.audioBlob?.type || 'audio/webm'
             })
           });
+
           if (apiRes.ok) {
             const data = await apiRes.json();
-            if (data?.success && data.result?.finalText) {
-              setCleanedOutput(data.result.finalText);
-              setTransformations(data.result.appliedTransformations);
-              if (data.result.rawTranscript) {
-                setLiveRawText(data.result.rawTranscript);
-              }
+            if (data?.text && data.text.trim()) {
+              const liveText = data.text.trim();
+              setLiveRawText(liveText);
+              runAIPipeline(liveText, selectedMode);
               setIsProcessing(false);
               return;
             }
           }
-        } catch {
-          // Localhost backend offline, proceeding to neural cloud whisper
+        } catch (e) {
+          console.warn('[Vercel /api/transcribe notice, falling back to direct Groq]:', e);
         }
       }
 
-      // Tier 2: Groq Whisper Large-v3 Turbo Neural Engine (Ultra-fast 200ms turnaround)
+      // Tier 2: Groq Whisper Large-v3 Turbo Neural Engine (Client-side Direct Fallback)
       const BUILTIN_FALLBACK_KEY = ['gsk', 'MTt811KDTP2GYcg639W3WGdyb3FYOsoqDk1oIOdY3ehsO0rn7Mgv'].join('_');
       const groqKey = (
         import.meta.env.VITE_GROQ_API_KEY ||
@@ -273,23 +289,6 @@ export const InteractiveDemo: React.FC = () => {
       }
 
       if (audioBlob && audioBlob.size > 200 && groqKey) {
-        const LANGUAGE_PROMPTS: Record<string, string> = {
-          gu: 'આ એક સ્પષ્ટ ગુજરાતી ડિક્ટેશન છે. યોગ્ય વિરામચિહ્નો સાથે શુદ્ધ ગુજરાતી લિપિમાં લખો.',
-          hi: 'यह एक स्पष्ट हिंदी डिक्टेशन है। उचित विराम चिह्नों के साथ शुद्ध देवनागरी लिपि में लिखें।',
-          mr: 'हे एक स्पष्ट मराठी डिक्टेशन आहे. योग्य विरामचिन्हांसह शुद्ध मराठीत लिहा.',
-          bn: 'এটি একটি স্পষ্ট বাংলা ডিক্টেশন। সঠিক বিরামচিহ্ন সহ বিশুদ্ধ বাংলায় লিখুন।',
-          ta: 'இது ஒரு தெளிவான தமிழ் பதிவு. சரியான நிறுத்தற்குறிகளுடன் தூய தமிழில் எழுதுங்கள்.',
-          te: 'ఇది స్పష్టమైన తెలుగు డిక్టేషన్. సరైన విరామ చిహ్నాలతో స్వచ్ఛమైన తెలుగులో రాయండి.',
-          kn: 'ಇದು ಸ್ಪಷ್ಟವಾದ ಕನ್ನಡ ಡಿಕ್ಟೇಶನ್. ಸರಿಯಾದ ವಿರಾಮಚಿಹ್ನೆಗಳೊಂದಿಗೆ ಶುದ್ಧ ಕನ್ನಡ ಲಿಪಿಯಲ್ಲಿ ಬರೆಯಿರಿ.',
-          ml: 'ഇതൊരു വ്യക്തമായ മലയാളം ഡിക്റ്റേഷനാണ്. ശരിയായ ചിഹ്നങ്ങളോടെ ശുദ്ധ മലയാളത്തിൽ എഴുതുക.',
-          pa: 'ਇਹ ਇੱਕ ਸਪਸ਼ਟ ਪੰਜਾਬੀ ਡਿਕਟੇਸ਼ਨ ਹੈ। ਸਹੀ ਵਿਰਾਮ ਚਿੰਨ੍ਹਾਂ ਨਾਲ ਸ਼ੁੱਧ ਗੁਰਮੁਖੀ ਵਿੱਚ ਲਿਖੋ।',
-          ur: 'یہ ایک واضح اردو ڈکٹیشن ہے۔ مناسب رموز و اوقاف کے ساتھ خالص اردو میں لکھیں۔',
-          sa: 'इदं स्पष्टं संस्कृत-श्रुतलेखनम् अस्ति। उचित-विरामचिह्नैः सह शुद्ध-देवनागरी-लिपौ लिखत।',
-          or: 'ଏହା ଏକ ସ୍ପଷ୍ଟ ଓଡ଼ିଆ ଡିକ୍ଟେସନ୍ | ଉପଯୁକ୍ତ ବିରାମ ଚିହ୍ନ ସହିତ ଶୁଦ୍ଧ ଓଡ଼ିଆ ଲିପିରେ ଲେଖନ୍ତୁ |',
-          as: 'এইটো এটা স্পষ্ট অসমীয়া ডিকটেচন। উপযুক্ত বিৰাম চিহ্নৰে বিশুদ্ধ অসমীয়া লিপিত লিখক।',
-          en: 'Clear Indian English and Hinglish dictation with natural business vocabulary and currency.'
-        };
-
         const tryTranscribe = async (modelName: string) => {
           const formData = new FormData();
           const detectedType = audioBlob!.type || '';
@@ -301,7 +300,7 @@ export const InteractiveDemo: React.FC = () => {
           formData.append('file', audioBlob!, fileName);
           formData.append('model', modelName);
           formData.append('temperature', '0');
-          if (selectedLanguage.code && selectedLanguage.code !== 'auto' && selectedLanguage.code !== 'en') {
+          if (selectedLanguage.code && selectedLanguage.code !== 'auto') {
             formData.append('language', selectedLanguage.code);
           }
           if (LANGUAGE_PROMPTS[selectedLanguage.code]) {
@@ -337,7 +336,39 @@ export const InteractiveDemo: React.FC = () => {
         }
       }
 
-      // Tier 3: Browser real-time transcript or accumulated text
+      // Tier 3: Localhost Backend Server (when running locally in development)
+      const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      if (isLocalhost && res.audioBase64) {
+        try {
+          const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4321';
+          const apiRes = await fetch(`${apiBase}/api/transcription`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              audioBase64: res.audioBase64,
+              transcript: currentText,
+              language: selectedLanguage.code,
+              mode: selectedMode
+            })
+          });
+          if (apiRes.ok) {
+            const data = await apiRes.json();
+            if (data?.success && data.result?.finalText) {
+              setCleanedOutput(data.result.finalText);
+              setTransformations(data.result.appliedTransformations);
+              if (data.result.rawTranscript) {
+                setLiveRawText(data.result.rawTranscript);
+              }
+              setIsProcessing(false);
+              return;
+            }
+          }
+        } catch {
+          // Localhost backend offline
+        }
+      }
+
+      // Tier 4: Browser real-time transcript or accumulated text
       if (currentText) {
         setLiveRawText(currentText);
         runAIPipeline(currentText, selectedMode);
@@ -348,7 +379,10 @@ export const InteractiveDemo: React.FC = () => {
       setCurrentWpm(0);
       setLiveRawText('');
       setCleanedOutput('');
-      await startListening(selectedLanguage.locale, selectedLanguage.code);
+      const activeLocale = selectedLanguage.code === 'auto'
+        ? (typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'en-IN')
+        : selectedLanguage.locale;
+      await startListening(activeLocale, selectedLanguage.code);
     }
   };
 
@@ -358,7 +392,10 @@ export const InteractiveDemo: React.FC = () => {
       stopListening();
       setTimeout(() => {
         setSpeechStartTime(Date.now());
-        startListening(lang.locale, lang.code);
+        const activeLocale = lang.code === 'auto'
+          ? (typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'en-IN')
+          : lang.locale;
+        startListening(activeLocale, lang.code);
       }, 250);
     }
   };
@@ -520,10 +557,10 @@ export const InteractiveDemo: React.FC = () => {
 
           <div className="flex flex-wrap items-center gap-2">
             {PRIMARY_LANGUAGES.map((lang) => {
-              const isSelected = selectedLanguage.locale === lang.locale;
+              const isSelected = selectedLanguage.code === lang.code;
               return (
                 <button
-                  key={lang.locale}
+                  key={lang.code}
                   onClick={() => handleLanguageSelect(lang)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
                     isSelected

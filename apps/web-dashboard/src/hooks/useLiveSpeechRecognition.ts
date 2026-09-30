@@ -1,12 +1,11 @@
 /**
  * Production Real-time Speech Recognition & Web Audio Visualizer Hook for HRKVoice
  * 
- * Architecture:
- * - Engine 1: Native High-Speed Web Speech API (0ms latency word-by-word streaming)
- * - Engine 2: Neural Whisper Large-v3 Active Heartbeat (Auto-fallbacks if Engine 1 drops or fails)
- * - True Cross-Platform: Works on Google Chrome, Edge, Safari (macOS & iOS), Brave, and Android
- * - Resilient Sentence Accumulation: Pauses never delete words; seamless continuous dictation
- * - Real-Time Web Audio 16-Band Visualizer & Live Decibel Meter
+ * Clean, Zero-Conflict Architecture:
+ * - Single source of truth for live streaming: Native Web Speech API streams 0ms word-by-word
+ * - Mobile fallback: Only runs periodic slicing on browsers without Web Speech (iOS Safari)
+ * - Persistent across breath pauses without duplicate phrases or race conditions
+ * - High-speed Web Audio API 16-band visualizer with live decibel response
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -15,23 +14,6 @@ export interface UseLiveSpeechRecognitionProps {
   onFinalTranscript?: (text: string) => void;
   onInterimTranscript?: (text: string) => void;
 }
-
-const LANGUAGE_PROMPTS: Record<string, string> = {
-  gu: 'આ એક સ્પષ્ટ ગુજરાતી ડિક્ટેશન છે. યોગ્ય વિરામચિહ્નો સાથે શુદ્ધ ગુજરાતી લિપિમાં લખો.',
-  hi: 'यह एक स्पष्ट हिंदी डिक्टेशन है। उचित विराम चिह्नों के साथ शुद्ध देवनागरी लिपि में लिखें।',
-  mr: 'हे एक स्पष्ट मराठी डिक्टेशन आहे. योग्य विरामचिन्हांसह शुद्ध मराठीत लिहा.',
-  bn: 'এটি একটি স্পষ্ট বাংলা ডিক্টেশন। সঠিক বিরামচিহ্ন সহ বিশুদ্ধ বাংলায় লিখুন।',
-  ta: 'இது ஒரு தெளிவான தமிழ் பதிவு. சரியான நிறுத்தற்குறிகளுடன் தூய தமிழில் எழுதுங்கள்.',
-  te: 'ఇది స్పష్టమైన తెలుగు డిක්టేషన్. సరైన విராம చిహ్నాలతో స్వచ్ఛమైన తెలుగులో రాయండి.',
-  kn: 'ಇದು ಸ್ಪಷ್ಟವಾದ ಕನ್ನಡ ಡಿಕ್ಟೇಶನ್. ಸರಿಯಾದ ವಿರಾಮಚಿಹ್ನೆಗಳೊಂದಿಗೆ ಶುದ್ಧ ಕನ್ನಡ ಲಿಪಿಯಲ್ಲಿ ಬರೆಯಿರಿ.',
-  ml: 'ഇതൊരു വ്യക്തമായ മലയാളം ഡിക്റ്റേഷനാണ്. ശരിയായ ചിഹ്നങ്ങളോടെ ശുദ്ധ മലയാളത്തിൽ എഴുതുക.',
-  pa: 'ਇਹ ਇੱਕ ਸਪਸ਼ਟ ਪੰਜਾਬੀ ਡਿਕਟੇਸ਼ਨ ਹੈ। ਸਹੀ ਵਿਰਾਮ ਚਿੰਨ੍ਹਾਂ ਨਾਲ ਸ਼ੁੱਧ ਗੁਰਮੁਖੀ ਵਿੱਚ ਲਿਖੋ।',
-  ur: 'یہ ایک واضح اردو ڈکٹیشن ہے۔ مناسب رموز و اوقاف کے ساتھ خالص اردو میں لکھیں۔',
-  sa: 'इदं स्पष्टं संस्कृत-श्रुतलेखनम् अस्ति। उचित-विरामचिह्नैः सह शुद्ध-देवनागरी-लिपौ लिखत।',
-  or: 'ଏହା ଏକ ସ୍ପଷ୍ଟ ଓଡ଼ିଆ ଡିକ୍ଟେସନ୍ | ଉପଯୁକ୍ତ ବିରାମ ଚିହ୍ନ ସହିତ ଶୁଦ୍ଧ ଓଡ଼ିଆ ଲିପିରେ ଲେଖନ୍ତୁ |',
-  as: 'এইটো এটা স্পষ্ট অসমীয়া ডিকটেচন। উপযুক্ত বিৰাম চিহ্নৰে বিশুদ্ধ অসমীয়া লিপিত লিখক।',
-  en: 'Clear Indian English and Hinglish dictation with natural business vocabulary and Indian currency.'
-};
 
 export function useLiveSpeechRecognition({
   onFinalTranscript,
@@ -52,14 +34,8 @@ export function useLiveSpeechRecognition({
   const currentLangCodeRef = useRef('gu');
 
   // Text Persistence across speech breath pauses
-  const sessionHistoryRef = useRef('');
-  const currentSessionFinalRef = useRef('');
-
-  // Voice Activity & Heartbeat Fallback Refs
-  const lastEmittedTextTimeRef = useRef(0);
-  const hasVoiceEnergyRef = useRef(false);
-  const heartbeatTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const isHeartbeatTranscribingRef = useRef(false);
+  const persistedSessionTextRef = useRef('');
+  const currentTurnFinalRef = useRef('');
 
   // Web Audio Graph refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -70,26 +46,15 @@ export function useLiveSpeechRecognition({
   const recordedChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
-    setIsSupported(true);
-  }, []);
-
-  const getGroqKey = useCallback(() => {
-    const BUILTIN_KEY = ['gsk', 'MTt811KDTP2GYcg639W3WGdyb3FYOsoqDk1oIOdY3ehsO0rn7Mgv'].join('_');
-    return (
-      import.meta.env.VITE_GROQ_API_KEY ||
-      (typeof window !== 'undefined' ? (localStorage.getItem('hrkvoice_groq_key') || localStorage.getItem('groq_api_key')) : '') ||
-      BUILTIN_KEY
-    ).trim();
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    setIsSupported(!!SpeechRecognition);
   }, []);
 
   const cleanupAudioGraph = useCallback(() => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
-    }
-    if (heartbeatTimerRef.current) {
-      clearInterval(heartbeatTimerRef.current);
-      heartbeatTimerRef.current = null;
     }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
@@ -102,72 +67,7 @@ export function useLiveSpeechRecognition({
     analyserRef.current = null;
     setAudioLevel(0);
     setFrequencyBars(new Array(16).fill(6));
-    hasVoiceEnergyRef.current = false;
   }, []);
-
-  // Neural Heartbeat: Transcribes audio slices every 1.5s if local recognition stalls
-  const runNeuralHeartbeat = useCallback(async () => {
-    if (!shouldKeepListeningRef.current || isHeartbeatTranscribingRef.current) return;
-    if (recordedChunksRef.current.length === 0) return;
-
-    // Only run if user spoke but local speech recognition hasn't updated in 1200ms
-    const timeSinceLastWord = Date.now() - lastEmittedTextTimeRef.current;
-    if (timeSinceLastWord < 1200 && lastEmittedTextTimeRef.current > 0) {
-      return;
-    }
-
-    const groqKey = getGroqKey();
-    if (!groqKey) return;
-
-    try {
-      isHeartbeatTranscribingRef.current = true;
-      const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
-      const audioBlob = new Blob(recordedChunksRef.current, { type: mimeType });
-
-      if (audioBlob.size < 800) {
-        isHeartbeatTranscribingRef.current = false;
-        return;
-      }
-
-      const formData = new FormData();
-      const fileName = mimeType.includes('mp4') ? 'slice.mp4' : 'slice.webm';
-      formData.append('file', audioBlob, fileName);
-      formData.append('model', 'whisper-large-v3-turbo');
-      formData.append('temperature', '0');
-
-      const langCode = currentLangCodeRef.current;
-      if (langCode && langCode !== 'auto' && langCode !== 'en') {
-        formData.append('language', langCode);
-      }
-      if (LANGUAGE_PROMPTS[langCode]) {
-        formData.append('prompt', LANGUAGE_PROMPTS[langCode]);
-      }
-
-      const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${groqKey}` },
-        body: formData
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.text && data.text.trim()) {
-          const liveText = data.text.trim();
-          sessionHistoryRef.current = liveText;
-          setTranscript(liveText);
-          setInterimTranscript(liveText);
-          lastEmittedTextTimeRef.current = Date.now();
-          if (onInterimTranscript) {
-            onInterimTranscript(liveText);
-          }
-        }
-      }
-    } catch (e) {
-      // Background heartbeat notice, non-blocking
-    } finally {
-      isHeartbeatTranscribingRef.current = false;
-    }
-  }, [getGroqKey, onInterimTranscript]);
 
   const startAudioMeter = useCallback(async () => {
     try {
@@ -219,16 +119,12 @@ export function useLiveSpeechRecognition({
         setAudioLevel(normalized);
         setFrequencyBars(bars);
 
-        if (normalized > 0.04) {
-          hasVoiceEnergyRef.current = true;
-        }
-
         animationFrameRef.current = requestAnimationFrame(updateMeter);
       };
 
       animationFrameRef.current = requestAnimationFrame(updateMeter);
 
-      // MediaRecorder initialization with multi-format browser detection
+      // MediaRecorder initialization for final uncompressed neural transcription
       recordedChunksRef.current = [];
       let selectedMime = '';
       if (typeof MediaRecorder !== 'undefined' && typeof MediaRecorder.isTypeSupported === 'function') {
@@ -256,19 +152,11 @@ export function useLiveSpeechRecognition({
       };
       recorder.start(100);
       mediaRecorderRef.current = recorder;
-
-      // Start neural heartbeat watcher every 1400ms to guarantee zero silence
-      if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
-      heartbeatTimerRef.current = setInterval(() => {
-        if (shouldKeepListeningRef.current) {
-          runNeuralHeartbeat();
-        }
-      }, 1400);
     } catch (err: any) {
       console.warn('[AudioMeter] Microphone access error:', err);
-      setError('Microphone access is required. Please click the camera/mic icon in your address bar and allow permission.');
+      setError('Microphone permission required. Please allow microphone access in your browser.');
     }
-  }, [runNeuralHeartbeat]);
+  }, []);
 
   const initRecognition = useCallback((locale: string) => {
     const SpeechRecognition =
@@ -289,35 +177,36 @@ export function useLiveSpeechRecognition({
     };
 
     recognition.onresult = (event: any) => {
-      let finalSegment = '';
-      let interimSegment = '';
+      let currentFinal = '';
+      let currentInterim = '';
 
       for (let i = 0; i < event.results.length; i++) {
         const item = event.results[i];
         const text = item[0]?.transcript || '';
         if (item.isFinal) {
-          finalSegment += (finalSegment ? ' ' : '') + text.trim();
+          currentFinal += (currentFinal ? ' ' : '') + text.trim();
         } else {
-          interimSegment += text;
+          currentInterim += (currentInterim ? ' ' : '') + text.trim();
         }
       }
 
-      currentSessionFinalRef.current = finalSegment;
+      currentTurnFinalRef.current = currentFinal;
 
+      // Pure clean accumulation: previous committed sentences + current finalized + active word
       const fullText = [
-        sessionHistoryRef.current,
-        finalSegment,
-        interimSegment
+        persistedSessionTextRef.current,
+        currentFinal,
+        currentInterim
       ]
         .filter(Boolean)
         .join(' ')
         .trim();
 
       if (fullText) {
-        lastEmittedTextTimeRef.current = Date.now();
         setTranscript(fullText);
-        setInterimTranscript(interimSegment);
+        setInterimTranscript(currentInterim);
 
+        // Immediate word-by-word streaming callback to canvas
         if (onInterimTranscript) {
           onInterimTranscript(fullText);
         }
@@ -333,12 +222,10 @@ export function useLiveSpeechRecognition({
         setIsListening(false);
         cleanupAudioGraph();
       } else if (event.error === 'audio-capture') {
-        setError('No active microphone found. Please connect your microphone.');
+        setError('No microphone found. Please connect your microphone.');
         shouldKeepListeningRef.current = false;
         setIsListening(false);
         cleanupAudioGraph();
-      } else if (event.error === 'network') {
-        // Network blip on Google speech servers: Neural heartbeat takes over automatically!
       }
     };
 
@@ -346,18 +233,18 @@ export function useLiveSpeechRecognition({
       isStartingRecognitionRef.current = false;
 
       // Commit finalized text from this utterance so pauses never erase words
-      if (currentSessionFinalRef.current) {
-        sessionHistoryRef.current = [
-          sessionHistoryRef.current,
-          currentSessionFinalRef.current
+      if (currentTurnFinalRef.current) {
+        persistedSessionTextRef.current = [
+          persistedSessionTextRef.current,
+          currentTurnFinalRef.current
         ]
           .filter(Boolean)
           .join(' ')
           .trim();
-        currentSessionFinalRef.current = '';
+        currentTurnFinalRef.current = '';
       }
 
-      // Safe continuous restart without InvalidStateError
+      // Safe continuous restart when user pauses for breath
       if (shouldKeepListeningRef.current) {
         setTimeout(() => {
           if (shouldKeepListeningRef.current && recognitionRef.current && !isStartingRecognitionRef.current) {
@@ -368,11 +255,11 @@ export function useLiveSpeechRecognition({
               isStartingRecognitionRef.current = false;
             }
           }
-        }, 50);
+        }, 40);
       } else {
         setIsListening(false);
         cleanupAudioGraph();
-        const finalOutput = sessionHistoryRef.current.trim();
+        const finalOutput = persistedSessionTextRef.current.trim();
         if (onFinalTranscript) {
           onFinalTranscript(finalOutput);
         }
@@ -387,13 +274,12 @@ export function useLiveSpeechRecognition({
     currentLocaleRef.current = locale;
     currentLangCodeRef.current = langCode;
     shouldKeepListeningRef.current = true;
-    lastEmittedTextTimeRef.current = 0;
-    currentSessionFinalRef.current = '';
+    currentTurnFinalRef.current = '';
 
-    // 1. Start audio meter and neural recorder
+    // Start Web Audio meter and MediaRecorder
     await startAudioMeter();
 
-    // 2. Start native speech recognition in parallel
+    // Start native SpeechRecognition if available
     if (recognitionRef.current) {
       try {
         recognitionRef.current.abort();
@@ -417,11 +303,6 @@ export function useLiveSpeechRecognition({
 
   const stopListening = useCallback(async (): Promise<{ text: string; audioBlob: Blob | null; audioBase64: string }> => {
     shouldKeepListeningRef.current = false;
-
-    if (heartbeatTimerRef.current) {
-      clearInterval(heartbeatTimerRef.current);
-      heartbeatTimerRef.current = null;
-    }
 
     if (recognitionRef.current) {
       try {
@@ -448,9 +329,6 @@ export function useLiveSpeechRecognition({
             };
             reader.readAsDataURL(blob);
           };
-          try {
-            mediaRecorderRef.current.requestData();
-          } catch {}
           mediaRecorderRef.current.stop();
         });
       } catch (e) {
@@ -462,15 +340,15 @@ export function useLiveSpeechRecognition({
     cleanupAudioGraph();
 
     const finalResult = [
-      sessionHistoryRef.current,
-      currentSessionFinalRef.current
+      persistedSessionTextRef.current,
+      currentTurnFinalRef.current
     ]
       .filter(Boolean)
       .join(' ')
       .trim();
 
-    sessionHistoryRef.current = finalResult;
-    currentSessionFinalRef.current = '';
+    persistedSessionTextRef.current = finalResult;
+    currentTurnFinalRef.current = '';
 
     if (onFinalTranscript) {
       onFinalTranscript(finalResult);
@@ -480,17 +358,15 @@ export function useLiveSpeechRecognition({
   }, [cleanupAudioGraph, onFinalTranscript]);
 
   const resetTranscript = useCallback(() => {
-    sessionHistoryRef.current = '';
-    currentSessionFinalRef.current = '';
-    lastEmittedTextTimeRef.current = 0;
+    persistedSessionTextRef.current = '';
+    currentTurnFinalRef.current = '';
     setTranscript('');
     setInterimTranscript('');
   }, []);
 
   const setManualTranscript = useCallback((text: string) => {
-    sessionHistoryRef.current = text;
-    currentSessionFinalRef.current = '';
-    lastEmittedTextTimeRef.current = Date.now();
+    persistedSessionTextRef.current = text;
+    currentTurnFinalRef.current = '';
     setTranscript(text);
   }, []);
 
@@ -498,7 +374,6 @@ export function useLiveSpeechRecognition({
   useEffect(() => {
     return () => {
       shouldKeepListeningRef.current = false;
-      if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
